@@ -35,7 +35,9 @@
 .vs/
 binaries/
 vendor/vulkanhpp/
-
+vendor/vulkanhpp
+vendor/imgui
+vendor/glfw
 
 #Files
 *.user
