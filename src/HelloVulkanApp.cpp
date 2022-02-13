@@ -30,16 +30,16 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFn(
 	switch( messageSeverity )
 	{
 	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-		VS_TRACE( "[VALIDATION LAYER] {0}", pCallbackData->pMessage );
+		VS_TRACE( "[VULKAN][TRACE] {0}", pCallbackData->pMessage );
 		break;
 	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-		VS_INFO( "[VALIDATION LAYER] {0}", pCallbackData->pMessage );
+		VS_INFO( "[VULKAN][INFO] {0}", pCallbackData->pMessage );
 		break;
 	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-		VS_WARN( "[VALIDATION LAYER] {0}", pCallbackData->pMessage );
+		VS_WARN( "[VULKAN][WARNING] {0}", pCallbackData->pMessage );
 		break;
 	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-		VS_ERROR( "[VALIDATION LAYER] {0}", pCallbackData->pMessage );
+		VS_ERROR( "[VULKAN][ERROR] {0}", pCallbackData->pMessage );
 		break;
 
 	}
@@ -51,6 +51,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFn(
 
 CHelloVulkanApp::CHelloVulkanApp()
 	: m_pWindow( nullptr )
+	, m_physicalDevice( nullptr )
 {
 }
 
@@ -71,12 +72,15 @@ void CHelloVulkanApp::run()
 
 void CHelloVulkanApp::cleanup()
 {
+	m_device.destroy();
+
+
 	if( VALIDATION_ENABLED )
 	{
-		m_Instance.destroyDebugUtilsMessengerEXT( m_debugmessenger, nullptr, m_dld );
+		m_instance.destroyDebugUtilsMessengerEXT( m_debugmessenger, nullptr, m_dld );
 	}
 
-	m_Instance.destroy();
+	m_instance.destroy();
 
 	glfwDestroyWindow( m_pWindow );
 	glfwTerminate();
@@ -102,6 +106,8 @@ void CHelloVulkanApp::initVulkan()
 {
 	createInstance();
 	setupDebugMessenger();
+	pickPhysicalDevice();
+	createLogicalDevice();
 }
 
 void CHelloVulkanApp::update()
@@ -125,7 +131,7 @@ void CHelloVulkanApp::createInstance()
 		instanceCreateInfo.enabledLayerCount = static_cast< uint32_t >( REQUIRED_VALIDATION_LAYERS.size() );
 		instanceCreateInfo.ppEnabledLayerNames = REQUIRED_VALIDATION_LAYERS.data();
 
-		vk::DebugUtilsMessengerCreateInfoEXT debugMsgrcreateInfo{};
+		vk::DebugUtilsMessengerCreateInfoEXT debugMsgrcreateInfo {};
 		debugMsgrcreateInfo.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo | vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose | vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
 		debugMsgrcreateInfo.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation;
 		debugMsgrcreateInfo.pfnUserCallback = debugCallbackFn;
@@ -133,9 +139,76 @@ void CHelloVulkanApp::createInstance()
 		instanceCreateInfo.pNext = ( vk::DebugUtilsMessengerCreateInfoEXT* )( &debugMsgrcreateInfo );
 	}
 
-	m_Instance = vk::createInstance( instanceCreateInfo );
-	m_dld = vk::DispatchLoaderDynamic( m_Instance, vkGetInstanceProcAddr );
+	m_instance = vk::createInstance( instanceCreateInfo );
+	m_dld = vk::DispatchLoaderDynamic( m_instance, vkGetInstanceProcAddr );
 }
+
+void CHelloVulkanApp::setupDebugMessenger()
+{
+	if( !VALIDATION_ENABLED )
+	{
+		return;
+	}
+
+	vk::DebugUtilsMessengerCreateInfoEXT createInfo {};
+	createInfo.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo | vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose | vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
+	createInfo.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation;
+	createInfo.pfnUserCallback = debugCallbackFn;
+
+	m_debugmessenger = m_instance.createDebugUtilsMessengerEXT( createInfo, nullptr, m_dld );
+}
+
+
+void CHelloVulkanApp::pickPhysicalDevice()
+{
+	uint32_t deviceCount = 0;
+	if( m_instance.enumeratePhysicalDevices( &deviceCount, nullptr ) != vk::Result::eSuccess )
+	{
+		throw std::runtime_error( "Failed to enumerate phyiscal devices" );
+	}
+
+	if( deviceCount < 1 )
+	{
+		throw std::runtime_error( "Failed to find physical devices with vulkan support." );
+	}
+
+	std::vector<vk::PhysicalDevice> availablePhysicalDevices( deviceCount );
+	if( m_instance.enumeratePhysicalDevices( &deviceCount, availablePhysicalDevices.data() ) != vk::Result::eSuccess )
+	{
+		throw std::runtime_error( "Failed to enumerate phyiscal devices" );
+	}
+
+
+	for( const auto& device : availablePhysicalDevices )
+	{
+		if( isDeviceSuitable( device ) )
+		{
+			m_physicalDevice = device;
+			break;
+		}
+	}
+
+	if( m_physicalDevice == vk::PhysicalDevice( nullptr ) )
+	{
+		throw std::runtime_error( "Failed to find a suitable GPU" );
+	}
+}
+
+
+void CHelloVulkanApp::createLogicalDevice()
+{
+	SQueueFamilyIndices indices = findQueueFamilies( m_physicalDevice );
+
+	float queuePriority = 1.0f;
+	vk::DeviceQueueCreateInfo graphicsQueueCreateInfo( {}, indices.graphicsFamily.value(), 1, &queuePriority );
+
+	vk::PhysicalDeviceFeatures physicalDeviceFeats {};
+	vk::DeviceCreateInfo deviceCreateInfo( {}, 1, &graphicsQueueCreateInfo, 0, nullptr, 0, nullptr, &physicalDeviceFeats );
+
+	m_device = m_physicalDevice.createDevice( deviceCreateInfo );
+	m_graphicsQueue = m_device.getQueue( indices.graphicsFamily.value(), 0 );
+}
+
 
 std::vector<const char*> CHelloVulkanApp::getRequiredExtensions()
 {
@@ -152,8 +225,6 @@ std::vector<const char*> CHelloVulkanApp::getRequiredExtensions()
 
 	return reqExtensions;
 }
-
-
 
 bool CHelloVulkanApp::checkValidationLayerSupport()
 {
@@ -191,18 +262,32 @@ bool CHelloVulkanApp::checkValidationLayerSupport()
 	return true;
 }
 
-void CHelloVulkanApp::setupDebugMessenger()
+bool CHelloVulkanApp::isDeviceSuitable( const vk::PhysicalDevice& device )
 {
-	if( !VALIDATION_ENABLED )
+	SQueueFamilyIndices indices = findQueueFamilies( device );
+	return  indices.isComplete();
+}
+
+CHelloVulkanApp::SQueueFamilyIndices CHelloVulkanApp::findQueueFamilies( const vk::PhysicalDevice& device )
+{
+	SQueueFamilyIndices indices;
+	std::vector<vk::QueueFamilyProperties> queueFamilyProps = device.getQueueFamilyProperties();
+
+	uint32_t queueIndex = 0;
+	for( const auto& queueFamilyProp : queueFamilyProps )
 	{
-		return;
+		if( indices.isComplete() )
+		{
+			break;
+		}
+
+		if( queueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics )
+		{
+			indices.graphicsFamily = queueIndex;
+		}
+		++queueIndex;
 	}
 
-	vk::DebugUtilsMessengerCreateInfoEXT createInfo{};
-	createInfo.messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo | vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose | vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
-	createInfo.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation;
-	createInfo.pfnUserCallback = debugCallbackFn;
-
-	m_debugmessenger = m_Instance.createDebugUtilsMessengerEXT( createInfo, nullptr, m_dld );
+	return indices;
 }
 

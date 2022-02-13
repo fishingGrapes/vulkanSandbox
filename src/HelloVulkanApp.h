@@ -6,6 +6,16 @@ struct GLFWwindow;
 
 class CHelloVulkanApp : public IAppBase
 {
+private:
+	struct SQueueFamilyIndices
+	{
+		std::optional<uint32_t> graphicsFamily;
+
+		bool isComplete() const
+		{
+			return graphicsFamily.has_value();
+		}
+	};
 
 public:
 	CHelloVulkanApp();
@@ -21,16 +31,27 @@ private:
 	void update();
 
 	void createInstance();
+	void setupDebugMessenger();
+	void pickPhysicalDevice();
+	void createLogicalDevice();
+
+
 	std::vector<const char*> getRequiredExtensions();
 	bool checkValidationLayerSupport();
 
-	void setupDebugMessenger();
+	bool isDeviceSuitable( const vk::PhysicalDevice& device );
+	SQueueFamilyIndices  findQueueFamilies( const vk::PhysicalDevice& device );
 
 
 	GLFWwindow* m_pWindow;
-	vk::Instance m_Instance;
-	vk::DispatchLoaderDynamic m_dld;
+	vk::Instance m_instance;
+	vk::PhysicalDevice m_physicalDevice;
+	vk::Device m_device;
 
+	vk::Queue m_graphicsQueue;
+
+
+	vk::DispatchLoaderDynamic m_dld;
 	vk::DebugUtilsMessengerEXT m_debugmessenger;
 
 };

@@ -8,7 +8,7 @@ std::shared_ptr<spdlog::logger> CLog::coreLogger_;
 
 void CLog::Initialize()
 {
-	spdlog::set_pattern( "%^[%T] %n: %v%$" );
+	spdlog::set_pattern( "%^[%T] %v%$" );
 
 	coreLogger_ = spdlog::stdout_color_mt( "VULKAN SANDBOX" );
 	coreLogger_->set_level( spdlog::level::trace );
