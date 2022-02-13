@@ -8,5 +8,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <memory>
+#include <numeric>
 
 #include <cstdint>
