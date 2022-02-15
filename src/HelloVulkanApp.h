@@ -18,6 +18,13 @@ private:
 		}
 	};
 
+	struct SSwapChainSupportDetails
+	{
+		vk::SurfaceCapabilitiesKHR capabilities;
+		std::vector<vk::SurfaceFormatKHR> formats;
+		std::vector<vk::PresentModeKHR> presentModes;
+	};
+
 public:
 	CHelloVulkanApp();
 
@@ -36,6 +43,8 @@ private:
 	void createSurface();
 	void pickPhysicalDevice();
 	void createLogicalDevice();
+	void createSwapChain();
+	void createImageViews();
 
 
 	std::vector<const char*> getRequiredInstanceExtensions();
@@ -45,12 +54,23 @@ private:
 	bool checkDeviceExtensionSupport( const vk::PhysicalDevice& device );
 	SQueueFamilyIndices  findQueueFamilies( const vk::PhysicalDevice& device );
 
+	SSwapChainSupportDetails querySwapChainSupportDetails( const vk::PhysicalDevice& device );
+	vk::SurfaceFormatKHR chooseSwapChainSurfaceFormat( const std::vector<vk::SurfaceFormatKHR>& availableFormats );
+	vk::PresentModeKHR chooseSwapChainPresentMode( const std::vector<vk::PresentModeKHR>& availableModes );
+	vk::Extent2D chooseSwapChainExtent( const vk::SurfaceCapabilitiesKHR& capabilities );
+
 
 	GLFWwindow* m_pWindow;
 	vk::Instance m_instance;
 	vk::PhysicalDevice m_physicalDevice;
 	vk::Device m_device;
 	vk::SurfaceKHR m_surface;
+	
+	vk::SwapchainKHR m_swapChain;
+	std::vector<vk::Image> m_swapChainImages;
+	vk::Format m_swapChainImageFormat;
+	vk::Extent2D m_swapChainImageExtent;
+	std::vector<vk::ImageView> m_swapChainImageViews;
 
 	vk::Queue m_graphicsQueue;
 	vk::Queue m_presentQueue;

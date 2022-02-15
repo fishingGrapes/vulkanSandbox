@@ -41,6 +41,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFn(
 		VS_WARN( "[VULKAN][WARNING] {0}", pCallbackData->pMessage );
 		break;
 	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+		std::cout << '\a';
 		VS_ERROR( "[VULKAN][ERROR] {0}", pCallbackData->pMessage );
 		break;
 
@@ -54,6 +55,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFn(
 CHelloVulkanApp::CHelloVulkanApp()
 	: m_pWindow( nullptr )
 	, m_physicalDevice( nullptr )
+	, m_swapChain( nullptr )
 {
 }
 
@@ -74,6 +76,13 @@ void CHelloVulkanApp::run()
 
 void CHelloVulkanApp::cleanup()
 {
+
+	for( auto& imageView : m_swapChainImageViews )
+	{
+		m_device.destroyImageView( imageView );
+	}
+
+	m_device.destroySwapchainKHR( m_swapChain );
 	m_instance.destroySurfaceKHR( m_surface );
 	m_device.destroy();
 
@@ -111,6 +120,7 @@ void CHelloVulkanApp::initVulkan()
 	createSurface();
 	pickPhysicalDevice();
 	createLogicalDevice();
+	createSwapChain();
 }
 
 void CHelloVulkanApp::update()
@@ -195,7 +205,6 @@ void CHelloVulkanApp::pickPhysicalDevice()
 	}
 }
 
-
 void CHelloVulkanApp::createLogicalDevice()
 {
 	SQueueFamilyIndices indices = findQueueFamilies( m_physicalDevice );
@@ -218,6 +227,92 @@ void CHelloVulkanApp::createLogicalDevice()
 	m_presentQueue = m_device.getQueue( indices.presentFamily.value(), 0 );
 }
 
+void CHelloVulkanApp::createSwapChain()
+{
+	SSwapChainSupportDetails supportDetails = querySwapChainSupportDetails( m_physicalDevice );
+
+	vk::SurfaceFormatKHR surfaceFormat = chooseSwapChainSurfaceFormat( supportDetails.formats );
+	vk::PresentModeKHR presentMode = chooseSwapChainPresentMode( supportDetails.presentModes );
+	vk::Extent2D extent = chooseSwapChainExtent( supportDetails.capabilities );
+
+	//take +1 so we dont have to wait for images to finish render
+	uint32_t imageCount = supportDetails.capabilities.minImageCount + 1;
+	//a value of 0 means there is no max image count
+	if( supportDetails.capabilities.maxImageCount > 0 && imageCount > supportDetails.capabilities.maxImageCount )
+	{
+		imageCount = supportDetails.capabilities.maxImageCount;
+	}
+
+	vk::SwapchainCreateInfoKHR createInfo { };
+
+	createInfo.setSurface( m_surface );
+	createInfo.setMinImageCount( imageCount );
+	createInfo.setImageFormat( surfaceFormat.format );
+	createInfo.setImageColorSpace( surfaceFormat.colorSpace );
+	createInfo.setImageExtent( extent );
+	createInfo.setImageArrayLayers( 1 );
+	createInfo.setImageUsage( vk::ImageUsageFlagBits::eColorAttachment );
+
+	SQueueFamilyIndices indices = findQueueFamilies( m_physicalDevice );
+	uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+
+	if( indices.graphicsFamily != indices.presentFamily )
+	{
+		createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
+		createInfo.queueFamilyIndexCount = 2;
+		createInfo.pQueueFamilyIndices = queueFamilyIndices;
+	}
+	else
+	{
+		createInfo.imageSharingMode = vk::SharingMode::eExclusive;
+		createInfo.queueFamilyIndexCount = 1;
+		createInfo.pQueueFamilyIndices = nullptr;
+	}
+
+	createInfo.setPreTransform( supportDetails.capabilities.currentTransform );
+	createInfo.setCompositeAlpha( vk::CompositeAlphaFlagBitsKHR::eOpaque );
+	createInfo.setPresentMode( presentMode );
+	createInfo.setClipped( VK_TRUE );
+	createInfo.setOldSwapchain( nullptr );
+
+	if( !( m_swapChain = m_device.createSwapchainKHR( createInfo ) ) )
+	{
+		throw std::runtime_error( "Failed to create swap chain." );
+	}
+
+	m_swapChainImages = m_device.getSwapchainImagesKHR( m_swapChain );
+	m_swapChainImageFormat = surfaceFormat.format;
+	m_swapChainImageExtent = extent;
+}
+
+void CHelloVulkanApp::createImageViews()
+{
+	m_swapChainImageViews.resize( m_swapChainImages.size(), vk::ImageView( nullptr ) );
+	for( size_t i = 0; i < m_swapChainImages.size(); ++i )
+	{
+		vk::ImageViewCreateInfo createInfo {};
+
+		createInfo.setImage( m_swapChainImages[ i ] );
+		createInfo.setViewType( vk::ImageViewType::e2D );
+		createInfo.setFormat( m_swapChainImageFormat );
+
+		createInfo.setComponents( vk::ComponentMapping { vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+			vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity } );
+
+
+		createInfo.subresourceRange.setAspectMask( vk::ImageAspectFlagBits::eColor );
+		createInfo.subresourceRange.setBaseMipLevel( 0 );
+		createInfo.subresourceRange.setLevelCount( 1 );
+		createInfo.subresourceRange.setBaseArrayLayer( 0 );
+		createInfo.subresourceRange.setLayerCount( 1 );
+
+		if( !( m_swapChainImageViews[ i ] = m_device.createImageView( createInfo ) ) )
+		{
+			throw std::runtime_error( "Failed to create image view." );
+		}
+
+	}
+}
 
 std::vector<const char*> CHelloVulkanApp::getRequiredInstanceExtensions()
 {
@@ -283,7 +378,14 @@ bool CHelloVulkanApp::isDeviceSuitable( const vk::PhysicalDevice& device )
 
 	const bool extensionsSupported = checkDeviceExtensionSupport( device );
 
-	return  indices.isComplete() && extensionsSupported;
+	bool swapChainAdequate = false;
+	if( extensionsSupported )
+	{
+		SSwapChainSupportDetails supportDetails = querySwapChainSupportDetails( device );
+		swapChainAdequate = !supportDetails.formats.empty() && !supportDetails.presentModes.empty();
+	}
+
+	return  indices.isComplete() && extensionsSupported && swapChainAdequate;
 }
 
 bool CHelloVulkanApp::checkDeviceExtensionSupport( const vk::PhysicalDevice& device )
@@ -326,5 +428,62 @@ CHelloVulkanApp::SQueueFamilyIndices CHelloVulkanApp::findQueueFamilies( const v
 	}
 
 	return indices;
+}
+
+CHelloVulkanApp::SSwapChainSupportDetails CHelloVulkanApp::querySwapChainSupportDetails( const vk::PhysicalDevice& device )
+{
+	SSwapChainSupportDetails supportDetails;
+
+	supportDetails.capabilities = device.getSurfaceCapabilitiesKHR( m_surface );
+	supportDetails.formats = device.getSurfaceFormatsKHR( m_surface );
+	supportDetails.presentModes = device.getSurfacePresentModesKHR( m_surface );
+
+	return supportDetails;
+}
+
+vk::SurfaceFormatKHR CHelloVulkanApp::chooseSwapChainSurfaceFormat( const std::vector<vk::SurfaceFormatKHR>& availableFormats )
+{
+	for( const auto& format : availableFormats )
+	{
+		if( format.format == vk::Format::eA8B8G8R8SrgbPack32 && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear )
+		{
+			return format;
+		}
+	}
+
+	return availableFormats[ 0 ];
+}
+
+vk::PresentModeKHR CHelloVulkanApp::chooseSwapChainPresentMode( const std::vector<vk::PresentModeKHR>& availableModes )
+{
+	for( const auto& mode : availableModes )
+	{
+		if( mode == vk::PresentModeKHR::eMailbox )
+		{
+			return mode;
+		}
+	}
+
+	return vk::PresentModeKHR::eFifo;
+}
+
+vk::Extent2D CHelloVulkanApp::chooseSwapChainExtent( const vk::SurfaceCapabilitiesKHR& capabilities )
+{
+	//UINT32_MAX is a reserved value to state that the current extent is the bext swap chain extent
+	if( capabilities.currentExtent.width != UINT32_MAX )
+	{
+		return capabilities.currentExtent;
+	}
+	else
+	{
+		int width, height;
+		glfwGetFramebufferSize( m_pWindow, &width, &height );
+
+		vk::Extent2D actualExtent { static_cast< uint32_t >( width ), static_cast< uint32_t >( height ) };
+		actualExtent.width = std::clamp( actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width );
+		actualExtent.height = std::clamp( actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height );
+
+		return actualExtent;
+	}
 }
 
