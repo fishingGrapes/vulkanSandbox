@@ -45,6 +45,8 @@ private:
 	void createLogicalDevice();
 	void createSwapChain();
 	void createImageViews();
+	void createRenderPass();
+	void createGraphicsPipeline();
 
 
 	std::vector<const char*> getRequiredInstanceExtensions();
@@ -58,6 +60,8 @@ private:
 	vk::SurfaceFormatKHR chooseSwapChainSurfaceFormat( const std::vector<vk::SurfaceFormatKHR>& availableFormats );
 	vk::PresentModeKHR chooseSwapChainPresentMode( const std::vector<vk::PresentModeKHR>& availableModes );
 	vk::Extent2D chooseSwapChainExtent( const vk::SurfaceCapabilitiesKHR& capabilities );
+
+	vk::ShaderModule createShaderModule( const std::vector<char>& code );
 
 
 	GLFWwindow* m_pWindow;
@@ -74,6 +78,10 @@ private:
 
 	vk::Queue m_graphicsQueue;
 	vk::Queue m_presentQueue;
+
+	vk::RenderPass m_renderPass;
+	vk::PipelineLayout m_pipelineLayout;
+	vk::Pipeline m_graphicsPipeline;
 
 	vk::DispatchLoaderDynamic m_dld;
 	vk::DebugUtilsMessengerEXT m_debugmessenger;

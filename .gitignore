@@ -43,5 +43,6 @@ binaries/
 *.filters
 *.user
 *.hint
+*.spv
 
 !premake5.exe

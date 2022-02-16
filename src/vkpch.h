@@ -10,5 +10,6 @@
 #include <algorithm>
 #include <memory>
 #include <numeric>
+#include <fstream>
 
 #include <cstdint>

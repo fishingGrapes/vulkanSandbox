@@ -22,6 +22,27 @@ constexpr bool VALIDATION_ENABLED = fasle;
 
 /////////////////////////////////////////////////
 
+
+static std::vector<char> readFile( const std::string& fileName )
+{
+	std::ifstream file( fileName, std::ios::ate | std::ios::binary );
+
+	if( !file.is_open() )
+	{
+		throw std::runtime_error( "Failed to open file" );
+	}
+
+	size_t fileSize = static_cast< size_t >( file.tellg() );
+	std::vector<char> buffer( fileSize );
+
+	file.seekg( 0 );
+	file.read( buffer.data(), fileSize );
+	file.close();
+
+	return buffer;
+}
+
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFn(
 	VkDebugUtilsMessageSeverityFlagBitsEXT       messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT              messageTypes,
@@ -76,6 +97,9 @@ void CHelloVulkanApp::run()
 
 void CHelloVulkanApp::cleanup()
 {
+	m_device.destroyPipeline( m_graphicsPipeline );
+	m_device.destroyPipelineLayout( m_pipelineLayout );
+	m_device.destroyRenderPass( m_renderPass );
 
 	for( auto& imageView : m_swapChainImageViews )
 	{
@@ -121,6 +145,9 @@ void CHelloVulkanApp::initVulkan()
 	pickPhysicalDevice();
 	createLogicalDevice();
 	createSwapChain();
+	createImageViews();
+	createRenderPass();
+	createGraphicsPipeline();
 }
 
 void CHelloVulkanApp::update()
@@ -314,6 +341,117 @@ void CHelloVulkanApp::createImageViews()
 	}
 }
 
+void CHelloVulkanApp::createRenderPass()
+{
+	vk::AttachmentDescription colorAttachment(
+		{}, m_swapChainImageFormat, vk::SampleCountFlagBits::e1,
+		vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eDontCare,
+		vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare,
+		vk::ImageLayout::eUndefined, vk::ImageLayout::ePresentSrcKHR
+	);
+
+	vk::AttachmentReference colorAttachmentRef( 0, vk::ImageLayout::eColorAttachmentOptimal );
+	vk::SubpassDescription subpass( {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, 1, &colorAttachmentRef );
+
+	vk::RenderPassCreateInfo renderPassCreateInfo( {}, 1, &colorAttachment, 1, &subpass );
+	m_renderPass = m_device.createRenderPass( renderPassCreateInfo );
+
+	if( m_renderPass == vk::RenderPass( nullptr ) )
+	{
+		throw std::runtime_error( "failed to create render pass." );
+	}
+}
+
+void CHelloVulkanApp::createGraphicsPipeline()
+{
+	auto vertShaderCode = readFile( "shaders/bytecode/vert.spv" );
+	auto fragShaderCode = readFile( "shaders/bytecode/frag.spv" );
+
+	vk::ShaderModule vertShaderModule = createShaderModule( vertShaderCode );
+	vk::ShaderModule fragShaderModule = createShaderModule( fragShaderCode );
+
+	vk::PipelineShaderStageCreateInfo vertShaderStageCreateInfo( {}, vk::ShaderStageFlagBits::eVertex, vertShaderModule, "main" );
+	vk::PipelineShaderStageCreateInfo fragShaderStageCreateInfo( {}, vk::ShaderStageFlagBits::eFragment, fragShaderModule, "main" );
+	vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageCreateInfo, fragShaderStageCreateInfo };
+
+	vk::PipelineVertexInputStateCreateInfo vertexInputStateCreateInfo( {}, 0, nullptr, 0, nullptr );
+	vk::PipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo( {}, vk::PrimitiveTopology::eTriangleList, false );
+
+	vk::Viewport viewport( 0.0f, 0.0f, static_cast< float >( m_swapChainImageExtent.width ), static_cast< float >( m_swapChainImageExtent.height ), 0.0f, 1.0f );
+	vk::Rect2D scissor( vk::Offset2D { 0, 0 }, m_swapChainImageExtent );
+	vk::PipelineViewportStateCreateInfo viewportStateCreateInfo( {}, 1, &viewport, 1, &scissor );
+
+	vk::PipelineRasterizationStateCreateInfo rasterStateCreateInfo {};
+	rasterStateCreateInfo.setDepthClampEnable( VK_FALSE );
+	rasterStateCreateInfo.setRasterizerDiscardEnable( VK_FALSE );
+	rasterStateCreateInfo.setPolygonMode( vk::PolygonMode::eFill );
+	rasterStateCreateInfo.setLineWidth( 1.0f );
+	rasterStateCreateInfo.setCullMode( vk::CullModeFlagBits::eBack );
+	rasterStateCreateInfo.setFrontFace( vk::FrontFace::eClockwise );
+	rasterStateCreateInfo.setDepthBiasEnable( VK_FALSE );
+
+
+	vk::PipelineMultisampleStateCreateInfo multiSamplingCreateInfo {};
+	multiSamplingCreateInfo.setSampleShadingEnable( VK_FALSE );
+	multiSamplingCreateInfo.setRasterizationSamples( vk::SampleCountFlagBits::e1 );;
+
+
+	vk::PipelineColorBlendAttachmentState colorBlendingAttachmentState {};
+	colorBlendingAttachmentState.setColorWriteMask( vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA );
+	colorBlendingAttachmentState.setBlendEnable( VK_FALSE );
+
+	vk::PipelineColorBlendStateCreateInfo colorBlendStateCreateInfo {};
+	colorBlendStateCreateInfo.setLogicOpEnable( VK_FALSE );
+	colorBlendStateCreateInfo.setLogicOp( vk::LogicOp::eCopy );
+	colorBlendStateCreateInfo.setAttachmentCount( 1 );
+	colorBlendStateCreateInfo.setPAttachments( &colorBlendingAttachmentState );
+	colorBlendStateCreateInfo.setBlendConstants( std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f } );
+
+	vk::DynamicState dynamicStates[] = { vk::DynamicState::eViewport, vk::DynamicState::eLineWidth };
+	vk::PipelineDynamicStateCreateInfo dynamicStateCreateInfo( {}, 2, dynamicStates );
+
+	vk::PipelineLayoutCreateInfo piplelineLayoutCreateInfo {};
+	m_pipelineLayout = m_device.createPipelineLayout( piplelineLayoutCreateInfo );
+	if( m_pipelineLayout == vk::PipelineLayout( nullptr ) )
+	{
+		throw std::runtime_error( "Failed to create pipeline layout object." );
+	}
+
+
+	vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo {};
+	graphicsPipelineCreateInfo.setStageCount( 2 );
+	graphicsPipelineCreateInfo.setPStages( shaderStages );
+
+	graphicsPipelineCreateInfo.setPVertexInputState( &vertexInputStateCreateInfo );
+	graphicsPipelineCreateInfo.setPInputAssemblyState( &inputAssemblyStateCreateInfo );
+	graphicsPipelineCreateInfo.setPViewportState( &viewportStateCreateInfo );
+	graphicsPipelineCreateInfo.setPRasterizationState( &rasterStateCreateInfo );
+	graphicsPipelineCreateInfo.setPMultisampleState( &multiSamplingCreateInfo );
+	graphicsPipelineCreateInfo.setPDepthStencilState( nullptr );
+	graphicsPipelineCreateInfo.setPColorBlendState( &colorBlendStateCreateInfo );
+	graphicsPipelineCreateInfo.setPDynamicState( nullptr );
+
+	graphicsPipelineCreateInfo.setLayout( m_pipelineLayout );
+	graphicsPipelineCreateInfo.setRenderPass( m_renderPass );
+	graphicsPipelineCreateInfo.setSubpass( 0 );
+
+	graphicsPipelineCreateInfo.setBasePipelineHandle( vk::Pipeline( nullptr ) );
+	graphicsPipelineCreateInfo.setBasePipelineIndex( -1 );
+
+	auto resultValue = m_device.createGraphicsPipeline( vk::PipelineCache( nullptr ), graphicsPipelineCreateInfo );
+	if( resultValue.result == vk::Result::eSuccess )
+	{
+		m_graphicsPipeline = resultValue.value;
+	}
+	else
+	{
+		throw std::runtime_error( "Failed to create graphics pipeline." );
+	}
+
+	m_device.destroyShaderModule( vertShaderModule );
+	m_device.destroyShaderModule( fragShaderModule );
+}
+
 std::vector<const char*> CHelloVulkanApp::getRequiredInstanceExtensions()
 {
 	uint32_t glfwExtensionCount = 0;
@@ -485,5 +623,18 @@ vk::Extent2D CHelloVulkanApp::chooseSwapChainExtent( const vk::SurfaceCapabiliti
 
 		return actualExtent;
 	}
+}
+
+vk::ShaderModule CHelloVulkanApp::createShaderModule( const std::vector<char>& code )
+{
+	vk::ShaderModuleCreateInfo createInfo( {}, code.size(), reinterpret_cast< const uint32_t* >( code.data() ) );
+	vk::ShaderModule shaderModule = m_device.createShaderModule( createInfo );
+
+	if( shaderModule == vk::ShaderModule( nullptr ) )
+	{
+		throw std::runtime_error( "Failed to create shader module." );
+	}
+
+	return shaderModule;
 }
 
